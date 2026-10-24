@@ -1,6 +1,6 @@
 import { preview } from './bridge';
 import { icon } from './dom';
-import { appUpdates, describeUpdate } from './app-updates';
+import { appUpdates, describeUpdate, OFFICIAL_UPDATES } from './app-updates';
 
 /** Public project links. Opening one is user-initiated; only the update check runs on its own. */
 export const PROJECT_LINKS = {
@@ -17,6 +17,7 @@ const link = (label: string, url: string) =>
 export function aboutSettingsHtml(): string {
   return `<div class="settings-group settings-about" aria-labelledby="settings-about-heading">
     <div class="setting-row"><div><strong id="settings-about-heading">About PandaCode</strong><small class="settings-about-version">Version …</small></div></div>
+    <div class="setting-row settings-fork"><div><strong>Fork</strong><small>This is a fork of PandaCode.</small></div>${link('PandaCode on GitHub', PROJECT_LINKS.repository)}</div>
     <div class="setting-row"><div><strong>License</strong><small>Open source (MIT-based). No account, no telemetry.</small></div>${link('PandaCode License', PROJECT_LINKS.license)}</div>
     <div class="setting-row settings-updates"><div><strong>Updates</strong><small class="settings-update-status" aria-live="polite">Checks GitHub Releases automatically.</small></div><div class="settings-row-actions"><button type="button" class="secondary-button settings-update-action" hidden></button>${link('Releases', PROJECT_LINKS.releases)}</div></div>
     <div class="setting-row settings-updates-auto"><div><strong>Install updates automatically</strong><small>Downloads in the background and restarts when no agent is working.</small></div><input type="checkbox" class="settings-switch" data-update-automatic aria-label="Install updates automatically"></div>
@@ -49,7 +50,7 @@ function mountUpdates(host: HTMLElement): () => void {
   const action = host.querySelector<HTMLButtonElement>('.settings-update-action')!;
   const auto = host.querySelector<HTMLInputElement>('[data-update-automatic]')!;
   if (!updates?.supported) {
-    status.textContent = describeUpdate({ kind: 'off' }, false);
+    status.textContent = preview || OFFICIAL_UPDATES ? describeUpdate({ kind: 'off' }, false) : 'Off in this fork, so official releases cannot replace its changes.';
     host.querySelector<HTMLElement>('.settings-updates-auto')?.remove();
     return () => {};
   }

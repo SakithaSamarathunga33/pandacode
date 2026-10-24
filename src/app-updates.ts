@@ -6,6 +6,10 @@
  * app before it installs. The request carries no personal data, and turning automatic
  * updates off in Settings → About stops it. The browser preview never checks. */
 import { call, preview } from './bridge';
+
+/** This is a personal fork: official PandaCode releases would install over its changes, so it never checks for them. */
+export const OFFICIAL_UPDATES = false;
+const off = preview || !OFFICIAL_UPDATES;
 import { CHECK_EVERY, readyToRestart, type UpdateState } from './app-updates-policy';
 export { describeUpdate, type UpdateState } from './app-updates-policy';
 
@@ -35,7 +39,7 @@ export const appUpdates = (): AppUpdates | undefined => instance;
 
 export function startAppUpdates(host: UpdatesHost): AppUpdates {
   const listeners = new Set<() => void>();
-  let state: UpdateState = preview ? { kind: 'off' } : { kind: 'idle' };
+  let state: UpdateState = off ? { kind: 'off' } : { kind: 'idle' };
   let automatic = (() => { try { return localStorage.getItem(KEY) !== 'off'; } catch { return true; } })();
   let pending: Pending | null = null, lastCheck = 0, lastInput = Date.now(), checking: Promise<void> | null = null;
   const set = (next: UpdateState) => { state = next; listeners.forEach(listener => listener()); };
@@ -52,7 +56,7 @@ export function startAppUpdates(host: UpdatesHost): AppUpdates {
   }
 
   async function run(): Promise<void> {
-    if (preview || state.kind === 'downloading' || state.kind === 'ready' || state.kind === 'installing') return;
+    if (off || state.kind === 'downloading' || state.kind === 'ready' || state.kind === 'installing') return;
     lastCheck = Date.now();
     set({ kind: 'checking' });
     try {
@@ -88,7 +92,7 @@ export function startAppUpdates(host: UpdatesHost): AppUpdates {
     } catch (cause) { set({ kind: 'error', message: message(cause) }); }
   }
 
-  if (!preview) {
+  if (!off) {
     const input = () => { lastInput = Date.now(); };
     for (const name of ['pointerdown', 'keydown', 'wheel']) addEventListener(name, input, { passive: true, capture: true });
     window.setTimeout(() => { if (automatic) void check(); }, FIRST_CHECK);
@@ -101,7 +105,7 @@ export function startAppUpdates(host: UpdatesHost): AppUpdates {
   instance = {
     get state() { return state; },
     get automatic() { return automatic; },
-    supported: !preview,
+    supported: !off,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     setAutomatic(on) {
       automatic = on;

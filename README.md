@@ -1,5 +1,7 @@
 # PandaCode
 
+> **This is a fork of PandaCode** — https://github.com/aicodeking/pandacode. It is a personal version with its own changes and does not install official PandaCode updates.
+
 A small, native desktop workspace for coding agents. PandaCode runs the coding
 CLIs you already use — **Claude Code, Codex, Kimi Code, OpenCode, GLM Coding
 Plan and Xiaomi MiMo** (through Claude Code), **GitHub Copilot CLI, Antigravity,
