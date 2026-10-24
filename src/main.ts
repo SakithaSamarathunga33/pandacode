@@ -960,14 +960,14 @@ function renderNavigation(): void {
     const pin = s.pinned ? `<span class="task-pin" role="img" aria-label="Pinned">${icon('pin')}</span>` : '';
     const projectName = `<span class="task-project">${escape(p?.name ?? 'Project')}</span>`;
     // Inside a project's folder the heading already names the project: one line with the
-    // title, then the worktree mark, linked PR or issue, status, age and harness.
-    if (inFolder) return `${button}<span class="task-line task-top"><span class="task-title">${escape(s.title)}</span>${worktreeMark}${linkMark}${pin}${projectName}${signals}${providerLogo(s.provider, 'task-provider')}</span></button>`;
+    // harness, the title, then the worktree mark, linked PR or issue, status and age.
+    if (inFolder) return `${button}<span class="task-line task-top">${providerLogo(s.provider, 'task-provider')}<span class="task-title">${escape(s.title)}</span>${worktreeMark}${linkMark}${pin}${projectName}${signals}</span></button>`;
     // With one project chosen the filter names it: two lines, the title and then the rest.
     const head = inProject
-      ? `<span class="task-line task-top"><span class="task-title">${escape(s.title)}</span>${signals}</span>`
+      ? `<span class="task-line task-top">${providerLogo(s.provider, 'task-provider')}<span class="task-title">${escape(s.title)}</span>${signals}</span>`
       : `<span class="task-line task-head">${projectAppIcon(s.projectId, p?.name ?? '')}<span class="task-checkout">${escape(checkout)}</span>${signals}</span><span class="task-title">${escape(s.title)}</span>`;
     return `${button}${head}`
-      + `<span class="task-line task-meta">${branch}${linkMark}${pin}${projectName}${providerLogo(s.provider, 'task-provider')}</span></button>`;
+      + `<span class="task-line task-meta">${branch}${linkMark}${pin}${projectName}${inProject ? '' : providerLogo(s.provider, 'task-provider')}</span></button>`;
   };
   const pinned = visible.filter(s => s.pinned).sort(compareThreadOrder);
   // Projectless chats get their own group; a chosen project filter hides them.
@@ -984,8 +984,11 @@ function renderNavigation(): void {
     const rows = shownTasks(tasks, expanded, state.sessionId, limit);
     const more = tasks.length > rows.length || expanded && tasks.length > limit
       ? `<button class="folder-more" data-action="toggle-folder-more" data-project="${escape(project.id)}">${expanded ? 'Show less' : `Show ${tasks.length - rows.length} more`}</button>` : '';
+    // A redraw keeps the state the open ⋯ menu set on its button; morph() would reset it.
+    const menuAnchor = choiceMenuAnchor?.classList.contains('folder-menu') && choiceMenuAnchor.dataset.id === project.id ? choiceMenuAnchor : undefined;
+    const menuControls = menuAnchor?.getAttribute('aria-controls');
     if (single) return `<section class="task-group folder-group single-project" data-thread-group="project:${escape(project.id)}" data-project="${escape(project.id)}" aria-label="${escape(project.name)} tasks"><div class="task-list">${rows.map(s => row(s, false, true)).join('') || '<div class="no-tasks">No tasks yet</div>'}${more}</div></section>`;
-    return `<section class="task-group folder-group" data-thread-group="project:${escape(project.id)}" data-project="${escape(project.id)}" aria-label="${escape(project.name)} tasks"><div class="folder-row"><button class="folder-heading ${tasks.length ? '' : 'empty'}" data-action="toggle-folder" data-project="${escape(project.id)}" aria-expanded="${open}" aria-controls="folder-tasks-${index}" title="${escape(project.path)}">${projectAppIcon(project.id, project.name)}<span>${escape(project.name)}</span></button><button class="icon-button folder-new-task" data-action="project-task" data-id="${escape(project.id)}" aria-label="New task in ${escape(project.name)}" title="New task">${icon('plus')}</button></div><div id="folder-tasks-${index}" class="task-list folder-tasks" ${open ? '' : 'hidden'}>${rows.map(s => row(s, true)).join('') || '<div class="no-tasks">No tasks yet</div>'}${more}</div></section>`;
+    return `<section class="task-group folder-group" data-thread-group="project:${escape(project.id)}" data-project="${escape(project.id)}" aria-label="${escape(project.name)} tasks"><div class="folder-row"><button class="folder-heading ${tasks.length ? '' : 'empty'}" data-action="toggle-folder" data-project="${escape(project.id)}" aria-expanded="${open}" aria-controls="folder-tasks-${index}" title="${escape(project.path)}">${projectAppIcon(project.id, project.name)}<span>${escape(project.name)}</span></button><button class="icon-button folder-menu" data-action="project-menu" data-id="${escape(project.id)}" aria-haspopup="dialog" aria-expanded="${Boolean(menuAnchor)}"${menuControls ? ` aria-controls="${escape(menuControls)}"` : ''} aria-label="Project actions for ${escape(project.name)}" title="Project actions">${icon('more')}</button><button class="icon-button folder-new-task" data-action="project-task" data-id="${escape(project.id)}" aria-label="New task in ${escape(project.name)}" title="New task">${icon('plus')}</button></div><div id="folder-tasks-${index}" class="task-list folder-tasks" ${open ? '' : 'hidden'}>${rows.map(s => row(s, true)).join('') || '<div class="no-tasks">No tasks yet</div>'}${more}</div></section>`;
   };
   const nav = $('#navigation');
   nav.setAttribute('aria-busy', String(orderingBusy));
@@ -3203,7 +3206,7 @@ async function showTaskMenu(anchor: HTMLElement): Promise<void> {
     { id: 'harness-console', label: 'Open harness console', icon: 'terminal' },
     { id: 'copy-path', label: s.worktreePath ? 'Copy worktree path' : 'Copy project path', icon: 'copy' },
     ...s.worktreePath ? [] : [{ id: 'worktree', label: newTaskView() ? 'Work in a new worktree…' : 'New task in a worktree…', icon: 'worktree' }],
-    { id: 'delete-task', label: 'Delete task…', icon: 'trash', danger: true, disabled: isRunning(s.id) || configuringSessions.has(s.id) || finishingStreams.has(s.id), description: isRunning(s.id) ? 'Stop the agent before deleting this task.' : undefined },
+    { id: 'delete-task', label: `Delete ${chatTask(s) ? 'chat' : 'task'}…`, icon: 'trash', danger: true, disabled: isRunning(s.id) || configuringSessions.has(s.id) || finishingStreams.has(s.id), description: isRunning(s.id) ? 'Stop the agent before deleting this task.' : undefined },
   ], onSelect: id => {
     if (s.id !== state.sessionId || generation !== state.generation) return;
     closeChoiceMenu(); run(action(id, anchor));
@@ -3245,9 +3248,11 @@ async function showSidebarTaskMenu(anchor: HTMLElement): Promise<void> {
     { id: 'pin', label: task.pinned ? 'Unpin task' : 'Pin task', icon: 'pin', disabled: orderingBusy },
     { id: 'up', label: 'Move up', icon: 'arrow', disabled: orderingBusy || index < 1 },
     { id: 'down', label: 'Move down', icon: 'down', disabled: orderingBusy || index === ids.length - 1 },
+    { id: 'delete', label: `Delete ${chatTask(task) ? 'chat' : 'task'}…`, icon: 'trash', danger: true, disabled: isRunning(id) || configuringSessions.has(id) || finishingStreams.has(id), description: isRunning(id) ? 'Stop the agent before deleting.' : undefined },
   ], onSelect: choice => {
     closeChoiceMenu();
     if (choice === 'pin') { run(pinTask(id)); return; }
+    if (choice === 'delete') { const current = state.sessions.find(item => item.id === id); if (current) showDeleteTask(current); return; }
     // Resolve the current list after an agent activity change or project filter.
     const row = $('#navigation').querySelector<HTMLElement>(`.task-item[data-id="${CSS.escape(id)}"]`);
     if (!row) return;
@@ -3257,6 +3262,26 @@ async function showSidebarTaskMenu(anchor: HTMLElement): Promise<void> {
       [current[from], current[to]] = [current[to], current[from]];
       run(reorderThreads(current, id));
     }
+  } });
+}
+/** A project heading's ⋯ menu. */
+async function showProjectMenu(anchor: HTMLElement): Promise<void> {
+  const id = anchor.dataset.id!, target = state.projects.find(p => p.id === id);
+  if (!target) return;
+  await showChoices(anchor, { title: 'Project actions', actions: true, items: [
+    { id: 'new', label: 'New task', icon: 'plus' },
+    { id: 'only', label: 'Show only this project', icon: 'folder', disabled: state.projectFilter === id },
+    { id: 'copy', label: 'Copy project path', icon: 'copy' },
+    { id: 'settings', label: 'Project settings', icon: 'settings' },
+    { id: 'remove', label: 'Remove project…', icon: 'trash', danger: true },
+  ], onSelect: choice => {
+    closeChoiceMenu();
+    if (choice === 'new') run(createTask(id));
+    else if (choice === 'only') { setProjectFilter(id); run(selectProject(id)); }
+    else if (choice === 'copy') run(navigator.clipboard.writeText(target.path).then(() => notify('Project path copied')));
+    // Settings → General lists the projects.
+    else if (choice === 'settings') run(showSettings('general'));
+    else if (choice === 'remove') showRemoveProject(target);
   } });
 }
 /** A project's favicon or app icon; the sidebar redraws once a new one has loaded. */
@@ -3306,9 +3331,9 @@ async function showDefaultModel(anchor: HTMLElement): Promise<void> {
     },
   });
 }
-function showDeleteTask(): void {
-  const task = session(); if (!task || isRunning(task.id) || configuringSessions.has(task.id)) return;
-  const dialog = modal('Delete task?', `<form id="delete-task-form"><p class="delete-task-name">${escape(task.title)}</p><p class="delete-task-description">Permanently delete this conversation and its worker history from PandaCode? This cannot be undone. Its terminal tabs close and running commands may stop. Project files and worktrees stay.</p><p class="delete-task-error" role="alert" hidden></p><div class="dialog-footer"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="submit" class="secondary-button delete-task-confirm">Delete task</button></div></form>`, 'delete-task-dialog');
+/** A destructive confirmation: Cancel has focus, and a refusal shows inline instead of closing. */
+function confirmDanger(title: string, body: string, confirmLabel: string, perform: () => Promise<void>): void {
+  const dialog = modal(title, `<form id="delete-task-form">${body}<p class="delete-task-error" role="alert" hidden></p><div class="dialog-footer"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button type="submit" class="secondary-button delete-task-confirm">${escape(confirmLabel)}</button></div></form>`, 'delete-task-dialog');
   const form = dialog.querySelector<HTMLFormElement>('#delete-task-form')!;
   const confirm = form.querySelector<HTMLButtonElement>('[type="submit"]')!;
   const error = form.querySelector<HTMLElement>('[role="alert"]')!;
@@ -3320,16 +3345,29 @@ function showDeleteTask(): void {
     confirm.disabled = true; confirm.setAttribute('aria-busy', 'true'); error.hidden = true;
     void (async () => {
       try {
-        const result = await call<{deletedSessionIds: string[]}>('delete_session', { sessionId: task.id });
-        if (chatTask(task)) await forgetChat(task.projectId);
-        removeDeletedSessions(result.deletedSessionIds);
+        await perform();
         if (ownsDialog()) closeModal();
-        notify('Task deleted');
       } catch (failure) {
         if (ownsDialog()) { error.textContent = String(failure instanceof Error ? failure.message : failure); error.hidden = false; }
         else report(failure);
       } finally { confirm.disabled = false; confirm.removeAttribute('aria-busy'); }
     })();
+  });
+}
+function showDeleteTask(task = session()): void {
+  if (!task || isRunning(task.id) || configuringSessions.has(task.id)) return;
+  const noun = chatTask(task) ? 'chat' : 'task';
+  confirmDanger(`Delete ${noun}?`, `<p class="delete-task-name">${escape(task.title)}</p><p class="delete-task-description">Permanently delete this conversation and its worker history from PandaCode? This cannot be undone. Its terminal tabs close and running commands may stop. Project files and worktrees stay.</p>`, `Delete ${noun}`, async () => {
+    const result = await call<{deletedSessionIds: string[]}>('delete_session', { sessionId: task.id });
+    if (chatTask(task)) await forgetChat(task.projectId);
+    removeDeletedSessions(result.deletedSessionIds);
+    notify(noun === 'chat' ? 'Chat deleted' : 'Task deleted');
+  });
+}
+function showRemoveProject(target: Project): void {
+  confirmDanger(`Remove ${target.name}?`, `<p class="delete-task-name">${escape(target.path)}</p><p class="delete-task-description">Its tasks are removed from PandaCode. The folder stays on disk.</p>`, 'Remove project', async () => {
+    await removeProject(target.id);
+    notify('Project removed');
   });
 }
 function showRename(): void { const s = session(); if (!s) return; modal('Rename task', `<form id="rename-form"><label for="task-title" class="field-label">Task name</label><input id="task-title" name="title" value="${escape(s.title)}" maxlength="200" required><div class="dialog-footer"><button type="button" class="secondary-button" data-action="close-dialog">Cancel</button><button class="primary-button">Save</button></div></form>`); document.querySelector<HTMLInputElement>('#task-title')?.select(); }
@@ -3877,6 +3915,7 @@ async function action(name: string, element: HTMLElement): Promise<void> {
     case 'board-complete': await changeBoardStage('completed'); break;
     case 'board-reopen': await changeBoardStage('review'); break;
     case 'project-task': await createTask(element.dataset.id!); break;
+    case 'project-menu': await showProjectMenu(element); break;
     case 'toggle-folder': { const id = element.dataset.project!; if (!state.collapsedFolders.delete(id)) state.collapsedFolders.add(id); saveCollapsedFolders(); renderNavigation(); break; }
     case 'toggle-folder-more': { const id = element.dataset.project!; if (!state.expandedFolders.delete(id)) state.expandedFolders.add(id); renderNavigation(); break; }
     case 'show-all-projects': setProjectFilter(''); renderNavigation(); break;
