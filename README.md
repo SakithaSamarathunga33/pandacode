@@ -125,8 +125,12 @@ Discord, WhatsApp or a browser too.
   stored locally in SQLite. Prompts go only to the coding CLI or service you
   pick, under that provider's own terms.
 - **It only talks to services you choose.** Provider keys (GLM, MiMo, DeepSeek, Command Code, cloud
-  sandboxes, bot channels) live in the system keychain and are sent only to
-  that provider.
+  sandboxes, bot channels, connection secrets) are sent only to that provider.
+  On macOS they live in `secrets.json` in PandaCode's app data folder, readable
+  only by your user (0600), never the Keychain, so updates never ask for your
+  login password; keys saved in the Keychain by older versions move there on
+  first use. Linux keeps them in the Secret Service and Windows in Credential
+  Manager.
 
 A few automatic checks send no personal data — just plain requests for public
 information:
@@ -134,6 +138,7 @@ information:
 | What | Where | How often |
 | --- | --- | --- |
 | Latest versions of installed coding CLIs | `formulae.brew.sh`, `downloads.claude.ai`, `api.github.com`, `cdn.kimi.com` | About every 6 hours |
+| Plan usage checks for your signed-in agents | That agent's provider | When you open the menu bar item or the Usage dialog |
 | Public model price list (for cost estimates) | `raw.githubusercontent.com` | Daily |
 | PandaCode's own updates (`latest.json` on this repository's latest release) | `github.com` | At launch and about every 6 hours; turn off in Settings → About |
 | Cloud agents (optional): the task's checkout, prompt and harness login go to the machine you chose; PandaCode checks on its active runs | The cloud provider you connected | Only for tasks you start on a cloud provider; while a run is active and at launch to re-attach |
