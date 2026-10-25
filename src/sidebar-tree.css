@@ -1,6 +1,6 @@
 /* Compact sidebar: list-style actions, then pinned tasks and one folder per project.
    Selectors are scoped to .sidebar so they win over the older card-style rules and theme variants. */
-.sidebar{--tree-row:30px;--tree-indent:15px;--tree-radius:7px;--tree-guide:color-mix(in srgb,var(--muted) 22%,transparent);--tree-hover:color-mix(in srgb,var(--text) 7%,transparent);--tree-well:color-mix(in srgb,var(--text) 5%,transparent);--tree-edge:color-mix(in srgb,var(--text) 11%,transparent)}
+.sidebar{--tree-row:30px;--tree-indent:15px;--tree-radius:var(--r-sm);--tree-guide:color-mix(in srgb,var(--muted) 22%,transparent);--tree-hover:var(--wash-hover);--tree-well:var(--wash-well);--tree-edge:var(--edge)}
 
 /* Brand: the panda mark beside the name. */
 .sidebar .brand{gap:8px}
