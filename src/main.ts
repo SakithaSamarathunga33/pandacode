@@ -1,6 +1,8 @@
 import { decodeHandoff, historicalProvider } from './provider-handoff';
 import { bindThreadReordering, compareThreadOrder, threadGroupRows } from './thread-order';
 import { FOLDER_LIMIT, PROJECT_LIMIT, folderGroups, readCollapsed, shownTasks } from './sidebar-tree';
+import './vendor/inter/inter.css';
+import './design-tokens.css';
 import './styles.css';
 import './smooth.css';
 import './wallpapers.css';
@@ -55,6 +57,7 @@ import { createThreadFind } from './thread-find';
 import type { RemoteHost, RemoteRepoCheck, RemoteStatus, RemoteTarget } from './remote-types';
 import { CONNECT_SETUP, LOCAL, behindDialog, behindText, computerControl, computerItems } from './remote-target';
 import './cloud-agents.css';
+import './modern.css';
 import { SETUP_CHOICE, cloudActionItems, cloudIcon, cloudProvider, cloudStrip, deleteMachineDialog, harnessRefusal, type CloudStage, type CloudTarget } from './cloud-agents';
 import { botsBarHtml, botsListHtml, botsPanelHeadHtml, storedSidebarView, storeSidebarView, syncSeen, type SidebarView } from './sidebar-bots';
 import { connectAgentUiActions, type AgentUiAction } from './agent-ui-actions';
@@ -1077,6 +1080,11 @@ function botCrumb(bot: import('./bots').Bot): string {
   const where = s && s.id !== bot.desktopSession ? s.title.split(' · ').slice(1).join(' · ') : '';
   return `<span class="bot-crumb">${botAvatarHtml(bot.avatar, bot.name, 'bot-crumb-avatar')}<strong>${escape(bot.name)}</strong>${where ? `<span class="bot-crumb-where">${escape(where)}</span>` : ''}<span class="bot-crumb-state" data-state="${status.toLowerCase()}">${status}</span></span><button class="icon-button bot-crumb-action" data-action="bot-pause" data-bot="${escape(bot.id)}" aria-label="${bot.paused ? 'Resume' : 'Pause'} ${escape(bot.name)}" title="${bot.paused ? 'Resume: schedules, check-ins and channels continue' : 'Pause: stop work and hold schedules and messages'}" aria-pressed="${bot.paused}">${icon(bot.paused ? 'play' : 'pause')}</button><button class="bot-crumb-settings" data-action="bot-settings" data-bot="${escape(bot.id)}" aria-label="${escape(bot.name)} settings" title="Profile, memory, schedules, channels and rules">${icon('settings')}<span>Settings</span></button>`;
 }
+/** A few ways to start, shown under the new-task heading; a click fills the prompt. */
+function welcomePrompts(): string {
+  const asks = ['Explain how this project is organized', 'Find and fix a bug', 'Add tests for the most important code', 'Review my uncommitted changes'];
+  return `<div class="prompt-suggestions">${asks.map(text => `<button type="button" data-action="suggest" data-text="${escape(text)}">${escape(text)}</button>`).join('')}</div>`;
+}
 /** An empty bot conversation: who it is, a few things to ask, and the settings that make it useful. */
 function botWelcome(bot: import('./bots').Bot): string {
   const asks = ['What can you help me with?', 'Remember that I prefer short, direct answers.', 'Every weekday at 9, send me a summary of what changed.'];
@@ -1139,7 +1147,7 @@ function renderTranscript(preservePosition = false): void {
   }
   if (newTaskView()) {
     const name = project()?.name ?? 'this project';
-    transcript.innerHTML = `<div class="new-task-welcome"><span class="new-task-mark" aria-hidden="true">${icon('bamboo')}</span><h1 aria-label="What should we build in ${escape(name)}?">What should we build in <button id="welcome-project" class="welcome-project" data-action="change-task-project" aria-label="Change task project" aria-haspopup="dialog" aria-expanded="false" title="${escape(project()?.path)}" ${s.worktreePath ? 'disabled' : ''}>${escape(name)}</button>?</h1></div><div id="stream-region"></div>`;
+    transcript.innerHTML = `<div class="new-task-welcome"><span class="new-task-mark" aria-hidden="true">${icon('bamboo')}</span><h1 aria-label="What should we build in ${escape(name)}?">What should we build in <button id="welcome-project" class="welcome-project" data-action="change-task-project" aria-label="Change task project" aria-haspopup="dialog" aria-expanded="false" title="${escape(project()?.path)}" ${s.worktreePath ? 'disabled' : ''}>${escape(name)}</button>?</h1>${welcomePrompts()}</div><div id="stream-region"></div>`;
     return;
   }
   const turns = groupTurns(visibleMessages());
@@ -4073,7 +4081,7 @@ async function action(name: string, element: HTMLElement): Promise<void> {
     case 'approval-allow-all': case 'approval-deny-all': { const sessionId = state.sessionId; for (const id of [...state.streams.get(sessionId)?.approvals.keys() ?? []]) await respondApproval(sessionId, id, name === 'approval-allow-all'); break; }
     case 'approval-group': approvalGroupOpen = !approvalGroupOpen; renderApprovalBar(); break;
     case 'approval-details': { const key = state.sessionId + element.dataset.request; if (!approvalDetails.delete(key)) approvalDetails.add(key); renderApprovalBar(); break; }
-    case 'suggest': { const prompt = document.querySelector<HTMLTextAreaElement>('#prompt'); if (prompt) { prompt.value = element.dataset.text!; prompt.focus(); } break; }
+    case 'suggest': { const prompt = document.querySelector<HTMLTextAreaElement>('#prompt'); if (prompt) { prompt.value = element.dataset.text!; prompt.dispatchEvent(new Event('input', { bubbles: true })); prompt.focus(); } break; }
   }
 }
 mountExternalLinks(document, url => call('open_external_url', { url }), report);

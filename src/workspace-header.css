@@ -2,10 +2,10 @@
    Colors come from the accent and surface tokens, so imported themes and wallpapers follow.
    Selectors start with `html` to win over the older header rules. */
 html .workspace-header{
-  --head-radius:8px;
-  --head-hover:color-mix(in srgb,var(--text) 7%,transparent);
-  --head-well:color-mix(in srgb,var(--text) 5%,transparent);
-  --head-edge:color-mix(in srgb,var(--text) 10%,transparent);
+  --head-radius:var(--r-md);
+  --head-hover:var(--wash-hover);
+  --head-well:var(--wash-well);
+  --head-edge:var(--edge);
   box-shadow:0 1px 0 color-mix(in srgb,var(--text) 6%,transparent);
 }
 html .workspace[data-wallpaper]>.main-pane>.workspace-header{box-shadow:none}
