@@ -52,8 +52,8 @@ html[data-theme] .sidebar .new-task-button kbd{background:rgb(var(--accent-rgb) 
 .folder-heading>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .folder-heading[aria-expanded=false]>.icon{opacity:.6}
 .folder-heading.empty{color:var(--muted)}
-/* Task count, a quiet badge that makes way for the hover new-task button. */
-.folder-heading>.folder-count{margin-left:auto;flex:none;min-width:18px;padding:0 5px;border-radius:9px;background:var(--tree-well);color:var(--faint);font-size:.68rem;font-weight:550;line-height:17px;text-align:center;font-variant-numeric:tabular-nums}
+/* Task count: a quiet badge on the row's right edge that makes way for the hover buttons. */
+.folder-heading>.folder-count{position:absolute;right:9px;top:50%;translate:0 -50%;pointer-events:none;min-width:18px;padding:0 5px;border-radius:9px;background:var(--tree-well);color:var(--faint);font-size:.68rem;font-weight:550;line-height:17px;text-align:center;font-variant-numeric:tabular-nums}
 .folder-row:hover .folder-count,.folder-row:focus-within .folder-count{visibility:hidden}
 @media(hover:none){.folder-count{visibility:hidden}}
 
