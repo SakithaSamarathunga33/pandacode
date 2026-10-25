@@ -8,6 +8,7 @@ import './turn-changes.css';
 import './team-progress.css';
 import './motion.css';
 import './sidebar-tree.css';
+import './workspace-header.css';
 import './inspector-bar.css';
 import './message-queue.css';
 import './usage-limit.css';
