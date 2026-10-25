@@ -33,6 +33,38 @@ is limited to 8 seconds and 1 MiB of output. Provider-supplied `displayName` val
 take precedence; entries without display metadata show the exact wire model name.
 See [Kimi model configuration](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/config-files#models).
 
+## How providers relate to agents
+
+Settings → Agents lists the agent harnesses installed on this computer (Claude
+Code, Codex, OpenCode, Pi and the rest). Settings → Providers holds what those
+harnesses sign in with: Claude's connection mode, executable locations, optional
+API keys (DeepSeek, Command Code), and the key-based plans **GLM Coding Plan** and
+**MiMo Token Plan**. The plans are not separate harnesses: each runs your
+installed Claude Code with its own key and endpoint, and appears as its own group
+in the model selector. They are set up only under Providers.
+
+Nothing on the Providers page is applied to every agent. A key or plan is used
+only by the harness it belongs to, and only for tasks where you pick it in the
+model selector. Named connections (below) are extra setups of one harness that a
+task opts into. Each harness's own models stay in that harness; OpenCode's model
+list is chosen once, in Settings → Agents → OpenCode models.
+
+### What PandaCode uses itself
+
+PandaCode needs no provider or model of its own:
+
+- **Thread titles** come from the agent already running the task, through the
+  `pandacode_title` tool, or from the first line of your prompt
+  (`session_titles.rs`). No extra model session is started.
+- **Project checks after turns** run the checkout's own `npm test` or
+  `cargo check` (`checks.rs`); no model is called.
+- **Jev** (optional) uses the keys entered in its own settings for its decision
+  and text-model services (`jev.rs`, `jev_decisions/`), not your agents' logins.
+- **Codex**, when installed, is also started as `codex app-server` to list its
+  integrations and skills, read Codex usage, import Codex
+  conversations and run Codex task commands (`integrations.rs`). None of this is
+  needed to use other agents.
+
 ## Named connections
 
 Settings → Providers → Connections adds named setups of one harness, such as
@@ -63,9 +95,20 @@ its arguments are appended and its environment, including the config folder
 variable, is set after the harness's own configuration. Secret values are
 removed from any error the run returns. The warm-agent key includes the
 connection id and its revision, so another connection, or a saved change to the
-same one, never adopts an idle process. Model catalogs, usage checks and slash
-command discovery still use the global setup. Tasks running on another
-computer use that computer's setup.
+same one, never adopts an idle process. Agent usage reads each Claude Code and
+Codex connection through its own config folder and environment (see
+[agent-usage.md](agent-usage.md)); model catalogs and slash command discovery
+still use the global setup. Tasks running on another computer use that
+computer's setup.
+
+Changing a task's connection starts a fresh harness session, because a session
+lives in its connection's config folder: `connection_assign` clears the resume
+ID and queues context recovery, so the next message carries the conversation
+forward, as a harness switch does. When a run stops at its plan limit and the
+harness has other connections, the usage-limit banner offers **Continue on
+<connection>** for each. It assigns that connection and sends “Continue where
+you left off.” with a note naming the new connection and the one that reached
+its limit, so the transcript shows the move. PandaCode never switches on its own.
 
 ## GitHub Copilot CLI
 
@@ -575,7 +618,7 @@ without spending tokens.
 Cline (`cline`, installed with `npm i -g cline`) exposes ACP v1 with
 `cline --acp`, so PandaCode drives it with the shared ACP adapter. The npm package's
 `bin/cline` is a Node launcher for a bundled native binary. On Windows the npm
-`cline.cmd` shim resolves to that declared entry.
+`cline.cmd` shim resolves to that declared entry. Official docs: [CLI overview](https://docs.cline.bot/usage/cli-overview), [TUI](https://docs.cline.bot/usage/tui), and [ACP](https://docs.cline.bot/usage/acp).
 
 **Sign-in.** Cline keeps its own sign-in (`cline auth`: Cline, ClinePass or a ChatGPT
 subscription), or reads `CLINE_API_KEY` from the environment. Without either,
@@ -593,6 +636,12 @@ options by ID first. There is no ACP effort option. The effort is the launch fla
 **Approvals.** See [approvals](approvals.md): Plan → `plan`, everything else → `act`.
 Full access adds `--auto-approve true`.
 
+**Terminal console.** Opening the terminal console launches Cline's interactive TUI (`cline -i`), preserving the task's model, mode (`--plan`, `--auto-approve true` for Full access, or `--auto-approve false` for approval modes), and reasoning effort (`--thinking <level>`). Resuming an existing task in the console passes `--id <session-id>`.
+
+**Capabilities and MCP.** Settings → Tools & add-ons inspects Cline's MCP configurations from `~/.cline/data/settings/cline_mcp_settings.json`, `~/.cline/cline_mcp_settings.json`, `~/.cline/mcp_settings.json`, and project-level `.cline/cline_mcp_settings.json` and `.cline/mcp_settings.json`. Custom skills are detected from `~/.cline/skills`, `.cline/skills`, and compatibility roots (`.clinerules/skills`, `.claude/skills`).
+
+**Updates.** Checked through the official npm registry (`npm:cline`).
+
 **Turn data.** Streaming text, thoughts, tool calls with `rawInput`/`rawOutput`,
 cancel and `session/load` (resume) use the common ACP paths. Cline can load a
 session only after it has received a prompt. It has no `session/resume`.
@@ -609,6 +658,45 @@ Verified against `cline` 3.0.73 on 2026-10-22 by driving `cline --acp`
 directly. The recorded frames back the unit tests in `providers/cline.rs`, and
 an ignored smoke test (`live_cline_lists_models`) reads the real catalog without
 spending tokens.
+
+## Kilo Code
+
+Kilo Code (`npm i -g @kilocode/cli`) exposes ACP v1 with `kilo acp`, so PandaCode
+uses its shared ACP adapter. Sign in with `kilo auth login` (or `/connect` in
+Kilo). Credentials and provider configuration stay with Kilo; PandaCode adds no
+separate account or key store. See the [official CLI docs](https://kilo.ai/docs/code-with-ai/platforms/cli).
+
+**Models and effort.** Discovery opens an empty session without sending a prompt
+or spending model tokens. Kilo advertises `model`, `effort` and `mode` config
+options; the current model's effort choices belong only to that model. Default
+leaves selection to Kilo. Mode, model and effort changes must be acknowledged
+before the prompt is sent. Missing advertised choices fail the turn.
+
+**Approvals.** Standard, Accept edits and Full access select Kilo's `code` agent;
+Plan selects `plan`. A process-local `KILO_CONFIG_CONTENT` sets global and
+code/plan wildcard permissions to `ask` in both `agent` and legacy `mode`
+settings; the inherited `KILO_PERMISSION` override is removed. PandaCode allows read/search/fetch/think
+requests, approves edits in Accept edits, and declines all other requests in Plan
+(cancelling if no rejection option is offered). Full access uses `allow` instead.
+Kilo's own configuration and managed restrictions still apply. These are tool
+permissions, not an OS sandbox. Kilo auto-updates are disabled for
+these subprocesses; update the CLI yourself.
+
+**Turn data.** Images, streaming text, tool calls, HTTP MCP for PandaCode tools,
+advertised slash commands, cancellation and session resume use the shared ACP
+paths. Kilo advertises both `session/resume` and `session/load`; older servers
+with only `loadSession` use `session/load`. Mid-turn messages remain queued for
+the next turn. Named connections accept `KILO_CONFIG_DIR` as their config folder.
+Their inline model/provider settings are retained, but the task's permission
+policy is applied after connection overrides.
+
+**Not integrated.** The interactive harness console, cloud-agent installation,
+automatic CLI updates and account balance/limits are not offered for Kilo. Check
+your Kilo or connected provider dashboard for credits and limits.
+
+Verified against `kilo` 7.3.41 on 2026-10-24 with real ACP metadata. Recorded
+frames back `providers/kilo.rs` tests; `live_kilo_lists_models` is an ignored,
+opt-in smoke test that reads the installed CLI's catalog without prompting.
 
 ## Muse Code
 
@@ -716,9 +804,64 @@ differences, read from omp 18.12's `modes/rpc/rpc-types.ts` and CLI flag table:
   omp does not hide them behind tool discovery.
 - Model discovery skips Pi-only flags (`--offline`, `--no-mcp`, …); slash
   commands come from `get_available_commands`.
+- A mid-turn message steers the running turn, exactly as it does for Pi, so a
+  recipe step that requires a steer is supported on omp too.
 
 Accounts, models and thinking levels are omp's own. Live check:
 `cargo test installed_omp -- --ignored`.
+
+## Custom OpenAI-compatible endpoints (Ollama, FreeLLMAPI, local models)
+
+PandaCode has no "custom provider" box; it launches harnesses, and a harness
+brings its own model list. For any server that speaks the OpenAI chat API
+(Ollama, LM Studio, [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi),
+a self-hosted gateway), add it to OpenCode's own config and pick its models in
+PandaCode.
+
+1. Add the provider to `~/.config/opencode/opencode.json` (or a project
+   `opencode.json`). Ollama:
+
+   ```json
+   {
+     "$schema": "https://opencode.ai/config.json",
+     "provider": {
+       "ollama": {
+         "npm": "@ai-sdk/openai-compatible",
+         "name": "Ollama (local)",
+         "options": { "baseURL": "http://localhost:11434/v1" },
+         "models": { "qwen3-coder": { "name": "Qwen3 Coder" } }
+       }
+     }
+   }
+   ```
+
+   For FreeLLMAPI or another hosted gateway, use the same shape with its URL
+   and key; `{env:NAME}` reads the key from the environment:
+
+   ```json
+   "freellmapi": {
+     "npm": "@ai-sdk/openai-compatible",
+     "name": "FreeLLMAPI",
+     "options": { "baseURL": "https://YOUR-HOST/v1", "apiKey": "{env:FREELLMAPI_KEY}" },
+     "models": { "YOUR-MODEL-ID": { "name": "My model" } }
+   }
+   ```
+
+2. Open Settings → Agents → OpenCode → **Choose models** (the OpenCode card's
+   button), refresh, tick the new models and save.
+3. Pick the model from the composer's OpenCode group.
+
+PandaCode only lists what `opencode models --verbose` reports, so a model that
+is missing there is a config problem; check it with `opencode models` in a
+terminal. At launch PandaCode sets only the permission policy through
+`OPENCODE_CONFIG_CONTENT` (`providers/acp.rs`); your `opencode.json` is read by
+OpenCode as usual and never rewritten. To keep a separate config per setup, add
+a [named connection](#named-connections) for OpenCode with its config folder
+(`OPENCODE_CONFIG_DIR`) pointing at a folder holding that `opencode.json`.
+
+For gateways that speak the Anthropic protocol instead, add a connection for
+Claude Code and set `ANTHROPIC_BASE_URL` (and a Secret `ANTHROPIC_AUTH_TOKEN`)
+under Environment; the model name comes from that gateway.
 
 ## Secret storage
 

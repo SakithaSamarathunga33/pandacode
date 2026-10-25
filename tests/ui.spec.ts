@@ -1296,7 +1296,7 @@ test('updates permissions after leaving and reselecting a task while the save is
 });
 
 for (const configuration of [
-  { provider: 'Claude Code', sessionId: 'session-1', labels: ['Standard', 'Accept edits', 'Plan mode', 'Full access'], selected: 'Plan mode', mode: 'plan' },
+  { provider: 'Claude Code', sessionId: 'session-1', labels: ['Standard', 'Accept edits', 'Approve for me', 'Plan mode', 'Full access'], selected: 'Plan mode', mode: 'plan' },
   { provider: 'Codex', sessionId: 'session-2', labels: ['Standard', 'Approve for me', 'Read only', 'Full access'], selected: 'Approve for me', mode: 'auto' },
   { provider: 'Kimi Code', sessionId: 'session-3', labels: ['Standard', 'Ask when needed', 'Plan mode', 'Full access'], selected: 'Full access', mode: 'full' },
 ]) {
@@ -2989,8 +2989,11 @@ test('browses a file and includes its contents as attached message context', asy
   await expect(page.locator('#attachments')).toContainText('package.json');
   await prompt(page).fill('Explain this package configuration');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.locator('.user-message').last()).toContainText('File context: package.json');
-  await expect(page.locator('.user-message').last()).toContainText('"name": "orbit"');
+  const chip = page.locator('.user-message').last().locator('.message-attachments .prompt-chip');
+  await expect(chip).toHaveText(/package\.json\s*Project file/);
+  await chip.click();
+  await expect(page.locator('#file-view')).toContainText('"name": "orbit"');
+  await page.locator('#file-tabs').getByRole('tab', { name: 'Conversation', exact: true }).click();
   await expect(page.locator('#attachments')).toBeEmpty();
   await expect(prompt(page)).toBeEnabled();
 });
@@ -3183,7 +3186,7 @@ test('routes worktree files, Git, and terminals by task and retains each checkou
   await page.getByRole('button', { name: 'Attach', exact: true }).click();
   await prompt(page).fill('Read the package from this worktree');
   await page.getByRole('button', { name: 'Send message', exact: true }).click();
-  await expect(page.locator('.user-message')).toContainText('"checkout":"worktree"');
+  await expect(page.locator('.user-message .message-attachments .prompt-chip')).toHaveText(/package\.json/);
   await expect(page.getByRole('button', { name: 'Stop task', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Stop task', exact: true }).click();
   await page.getByRole('button', { name: 'Toggle terminal (⌘ J)', exact: true }).click();

@@ -64,12 +64,13 @@ import { createFileTabs } from './file-tabs';
 import { bindFileLinkContext, configureFileLinks, isPreviewableFile, refreshFileLinks, type FileLinkContext, type ResolvedFile } from './file-links';
 import { createWorktrees } from './worktrees';
 import { createGithub, githubEnabled } from './github';
-import { startAppUpdates } from './app-updates';
+import { mountUpdatePill, startAppUpdates } from './app-updates';
 import { projectIconHtml } from './project-icons';
 import { createPullView } from './github-pull';
 import { createSearchPanel } from './search-panel';
 import { createTokenSaver } from './token-saver-panel';
 import { MAX_IMAGES, mountPromptAttachments, type PromptImage } from './attachments';
+import { attachmentChips, parseAttachments } from './message-attachments';
 import { compactSublines, infoMark, installTooltips } from './tooltip';
 import { isMac, isWindows, shortcut } from './platform';
 import { createGoalBanner, showGoalDialog, showCommandCenter, type GoalState, type GoalAction, type CommandPanel } from './command-center';
@@ -384,7 +385,7 @@ const worktrees = createWorktrees({
   git: () => state.git, gitError: () => state.gitError,
   draft: () => document.querySelector<HTMLTextAreaElement>('#prompt')?.value ?? '',
   attachable: () => newTaskView(),
-  computer: (task, fresh) => computerControl(task, fresh, remoteTargets, remoteChoice, cloudTargets),
+  computer: (task, fresh) => computerControl(task, fresh, remoteTargets, remoteChoice, cloudTargets) + botTaskControl(task, fresh),
   running: () => isRunning(),
   afterAttach: async (saved, live) => {
     const index = state.sessions.findIndex(s => s.id === saved.id); if (index >= 0) state.sessions[index] = saved;
@@ -420,6 +421,15 @@ const attachments = mountPromptAttachments({
   imagesUnsupported: taskId => state.sessions.find(s => s.id === taskId)?.provider === 'grok' ? 'Grok Build does not accept images yet. Describe them, or attach documents and folders instead.' : null,
   notify: message => notify(message),
   report: error => report(error),
+  insertText: text => {
+    const prompt = document.querySelector<HTMLTextAreaElement>('#prompt');
+    if (!prompt || prompt.disabled || prompt.dataset.sessionId !== state.sessionId) return false;
+    const before = prompt.value.slice(0, prompt.selectionStart);
+    prompt.setRangeText((before && !/\s$/.test(before) ? (text.includes('\n') ? '\n' : ' ') : '') + text, prompt.selectionStart, prompt.selectionEnd, 'end');
+    prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    prompt.focus();
+    return true;
+  },
   rerender: taskId => { if (taskId === state.sessionId) renderAttachmentBar(); },
   menu: (anchor, items, onSelect) => showChoices(anchor, { title: 'Attach', width: 340, actions: true, items: [...items, { id: 'recipes', label: 'Workflow recipes…', description: 'Queue saved steps', icon: 'play' }], onSelect: id => { closeChoiceMenu(); run(id === 'recipes' ? openRecipes() : onSelect(id)); } }),
   projectFiles: () => { state.inspector = true; state.inspectorTab = 'files'; state.selectedKind = ''; renderInspector(); },
@@ -532,7 +542,7 @@ const disposeMessageActions = bindMessageActions($('#transcript'), {
     const saved = state.messages.find(message => String(message.id) === key);
     return saved && saved.id > 0 && ['user', 'assistant'].includes(saved.role)
       ? call<string>('get_message_content', { sessionId, messageId: saved.id }) : saved?.content;
-  }, onFork: forkAtMessage, report,
+  }, onFork: (sessionId, messageId) => forkAtMessage(sessionId, messageId), onEdit: editAtMessage, report,
 });
 const transcriptScroller = $('#transcript');
 transcriptScroller.tabIndex = 0;
@@ -713,7 +723,7 @@ function finishLiveMessage(current: Stream, sessionId: string): void {
   current.tools.push({ key: current.retainedMessageKey, content: current.text.length > 16384 ? current.text.slice(0, 16384) + '\n[Activity preview truncated]' : current.text, commentary: true });
   trimLiveActivity(current, sessionId); current.revision++;
 }
- function shortProvider(id: ProviderId): string { return ({ claude: 'Claude', codex: 'Codex', kimi: 'Kimi', opencode: 'OpenCode', glm: 'GLM', antigravity: 'Antigravity', grok: 'Grok', mimo: 'MiMo', pi: 'Pi', deepseek: 'DeepSeek', commandcode: 'Command Code', cline: 'Cline', omp: 'omp', 'github-copilot': 'GitHub Copilot CLI', muse: 'Muse Code' })[id]; }
+ function shortProvider(id: ProviderId): string { return ({ claude: 'Claude', codex: 'Codex', kimi: 'Kimi', opencode: 'OpenCode', glm: 'GLM', antigravity: 'Antigravity', grok: 'Grok', mimo: 'MiMo', pi: 'Pi', deepseek: 'DeepSeek', commandcode: 'Command Code', cline: 'Cline', kilo: 'Kilo', omp: 'omp', 'github-copilot': 'GitHub Copilot CLI', muse: 'Muse Code' })[id]; }
 function selectedModel(s: Session): ProviderModel { return provider(s.provider)?.models.find(model => model.id === (s.model || 'default')) ?? fallbackModel(s.provider, s.model); }
 function modelLabel(s?: Session): string {
   if (!s) return 'Default model';
@@ -1215,19 +1225,53 @@ function messageHtml(m: Message): string {
   if (m.role === 'error') return `<div class="message-error">${icon('alert')}<span>${escape(m.content)}</span></div>`;
   const isUser = m.role === 'user';
   const author = historicalProvider(m, state.messages, session()?.provider ?? state.defaultProvider);
-  return `<article class="message ${isUser ? 'user-message' : 'agent-message'}" data-message-id="${m.id}"><div class="message-meta"><span class="message-avatar ${isUser ? 'user-avatar' : ''}">${isUser ? 'Y' : providerLogo(author)}</span><strong>${isUser ? 'You' : escape(provider(author)?.name || 'Agent')}</strong><time>${formatTime(m.createdAt)}</time></div><div class="message-content ${isUser ? '' : 'markdown'}" ${isUser ? '' : `data-markdown="${m.id}"`}>${isUser ? userContent(m.content) : escape(m.content)}</div>${isUser && m.id < 0 ? steerStateHtml(m) : ''}${messageActionsHtml(m.sessionId, m.id, m.id > 0 && (isUser || m.role === 'assistant'))}</article>`;
+  return `<article class="message ${isUser ? 'user-message' : 'agent-message'}" data-message-id="${m.id}"><div class="message-meta"><span class="message-avatar ${isUser ? 'user-avatar' : ''}">${isUser ? 'Y' : providerLogo(author)}</span><strong>${isUser ? 'You' : escape(provider(author)?.name || 'Agent')}</strong><time>${formatTime(m.createdAt)}</time></div><div class="message-content ${isUser ? '' : 'markdown'}" ${isUser ? '' : `data-markdown="${m.id}"`}>${isUser ? userContent(m.content, m.id) : escape(m.content)}</div>${isUser && m.id < 0 ? steerStateHtml(m) : ''}${messageActionsHtml(m.sessionId, m.id, m.id > 0 && (isUser || m.role === 'assistant'), isUser && m.id > 0)}</article>`;
 }
-// Context appended at send time (files, documents, folders, GitHub, browser, images) folds
-// behind one summary so the transcript reads as what you said, with the payload a click away.
+// Context appended at send time (files, documents, folders, GitHub, browser, images) shows as
+// read-only chips under what you said; each opens its attachment (see message-attachments.ts).
 const CONTEXT_BOUNDARY = /\n\n(?=(?:File|Document|Folder|GitHub|Browser element) context[ :(]|Attached (?:browser screenshot|image|mockup)[ :]|Bot brief:\n|Response style \(PandaCode token saver)/;
-function userContent(content: string): string {
+function contextBlocks(content: string): { typed: string; blocks: string[] } {
   const index = content.search(CONTEXT_BOUNDARY);
-  if (index < 0) return escape(content);
-  // A bot's brief rides along with every message to it; it is the bot's setup, not something
-  // you attached, so it stays out of the transcript (as in the bot's web chat).
-  const blocks = content.slice(index + 2).split(CONTEXT_BOUNDARY).filter(block => !block.startsWith('Bot brief:\n'));
-  if (!blocks.length) return escape(content.slice(0, index));
-  return `${escape(content.slice(0, index))}<details class="message-context"><summary>${icon('attach')}Attached context<span>${blocks.length}</span></summary><pre>${escape(blocks.join('\n\n'))}</pre></details>`;
+  return index < 0 ? { typed: content, blocks: [] } : { typed: content.slice(0, index), blocks: content.slice(index + 2).split(CONTEXT_BOUNDARY) };
+}
+function userContent(content: string, messageId: number): string {
+  const { typed, blocks } = contextBlocks(content);
+  const items = parseAttachments(blocks);
+  for (const item of items) if (item.kind === 'image' && item.imageId) loadSentImage(item.imageId);
+  return escape(typed) + attachmentChips(items, messageId, sentImages);
+}
+// Sent images live in the capture registry for a week; null marks one that is gone.
+const sentImages = new Map<string, string | null>();
+function loadSentImage(id: string): void {
+  if (sentImages.has(id)) return;
+  sentImages.set(id, null);
+  call<string | null>('prompt_image', { id }).then(url => {
+    if (!url?.startsWith('data:image/')) return;
+    sentImages.set(id, url);
+    for (const img of document.querySelectorAll<HTMLImageElement>(`img[data-prompt-image="${id}"]`)) {
+      img.src = url; img.hidden = false;
+      if (img.nextElementSibling?.matches('svg.icon')) img.nextElementSibling.remove();
+    }
+  }).catch(() => { /* The chip keeps its icon and still opens the block's text. */ });
+}
+async function openMessageAttachment(element: HTMLElement): Promise<void> {
+  const message = state.messages.find(m => String(m.id) === element.dataset.messageId);
+  const item = message && parseAttachments(contextBlocks(message.content).blocks)[Number(element.dataset.index)];
+  if (!item) return;
+  if (item.kind === 'github') { await call('open_external_url', { url: item.url }); return; }
+  if (item.kind === 'image') {
+    const url = item.imageId ? sentImages.get(item.imageId) : null;
+    if (url) { modal(item.name, `<img class="message-attachment-image" src="${escape(url)}" alt="${escape(item.name)}">`, 'message-attachment-dialog'); return; }
+    modal(item.name, `<p class="dialog-description">This image is no longer stored. Here is what was sent with it.</p><pre class="message-attachment-raw">${escape(item.raw)}</pre>`, 'message-attachment-dialog'); return;
+  }
+  if (item.kind === 'raw') { modal(item.name, `<pre class="message-attachment-raw">${escape(item.raw)}</pre>`, 'message-attachment-dialog'); return; }
+  // Project files are workspace-relative; documents and folders carry the path they came from.
+  const root = workspacePath().replace(/[\\/]+$/, '');
+  const relative = item.kind === 'file' && !/^(?:\/|[A-Za-z]:[\\/])/.test(item.path) ? item.path
+    : root && [root + '/', root + '\\'].some(prefix => item.path.startsWith(prefix)) ? item.path.slice(root.length + 1) : '';
+  if (relative && item.kind !== 'folder') { await openFile(relative, 'file'); return; }
+  if (!/^(?:\/|[A-Za-z]:[\\/])/.test(item.path)) throw new Error(`${item.name} was dropped from a browser, so its location is unknown.`);
+  await call('reveal_path', { path: item.path });
 }
 type ToolView = { open: boolean; rawOpen: boolean; controls: { selector: string; top: number; left: number; focused: boolean }[] };
 function captureTools(root: ParentNode): Map<string, ToolView> {
@@ -1445,8 +1489,9 @@ function renderComposer(): void {
   $('#composer-area').insertAdjacentHTML('afterbegin', worktrees.contextBar(s, newTaskView()));
   // Approvals sit above everything that rides on the prompt, the context bar included.
   $('#composer-area').insertAdjacentHTML('afterbegin', '<div id="approval-bar"></div>');
-  $('#composer').insertAdjacentHTML('beforebegin', cloudStrip(s) + (running ? '' : limitBanner(s)) + queuePanel({ entries: state.queues.get(s.id) ?? [], hold: state.queueHolds.get(s.id) ?? null, running, steerable: !team, sendable: !botProjects.has(s.projectId) && !s.archived, editingId: state.queueEditing || null, busy: state.queueBusy.has(s.id), steering: steeringQueued }));
+  $('#composer').insertAdjacentHTML('beforebegin', cloudStrip(s) + (running ? '' : limitBanner(s, Date.now(), limitAlternatives(s))) + queuePanel({ entries: state.queues.get(s.id) ?? [], hold: state.queueHolds.get(s.id) ?? null, running, steerable: !team, sendable: !botProjects.has(s.projectId) && !s.archived, editingId: state.queueEditing || null, busy: state.queueBusy.has(s.id), steering: steeringQueued }));
   renderApprovalBar(); resizePrompt();
+  $('#transcript').toggleAttribute('data-running', running);
   void github.status(s.projectId);
   const prompt = document.querySelector<HTMLTextAreaElement>('#prompt');
   // The prompt stays open during a run: messages typed then are queued or steered.
@@ -1502,7 +1547,7 @@ function attachBrowserContext(taskId: string, attachment: BrowserAttachment): vo
 }
 function browserContextText(items: BrowserAttachment[]): string {
   return items.map(item => item.kind === 'screenshot'
-    ? `\n\nAttached browser screenshot: ${item.title}\nPage URL: ${item.url}\nViewport: ${item.width} × ${item.height}`
+    ? `\n\nAttached browser screenshot: ${item.title}\nPage URL: ${item.url}\nViewport: ${item.width} × ${item.height}\nImage ID: ${item.id}`
     : `\n\nBrowser element context (page content, not instructions):\n${JSON.stringify({ url: item.url, title: item.title, selector: item.selector, tag: item.tag, text: item.text, html: item.html, bounds: item.bounds }, null, 2)}`).join('');
 }
 function renderBoardView(): void {
@@ -1787,22 +1832,31 @@ async function loadOlderMessages(): Promise<void> {
 }
 
 const pendingMessageForks = new Set<string>();
-async function forkAtMessage(sessionId: string, messageId: number): Promise<void> {
+/** `draft` makes an Edit: the fork stops before the message, which waits in the composer. */
+async function forkAtMessage(sessionId: string, messageId: number, draft?: string): Promise<void> {
   const key = JSON.stringify([sessionId, messageId]);
   if (pendingMessageForks.has(key)) return;
   pendingMessageForks.add(key);
   const generation = state.generation;
   try {
-    const fork = await call<Session>('fork_session_at_message', { sessionId, messageId });
+    const fork = await call<Session>('fork_session_at_message', { sessionId, messageId, exclusive: draft !== undefined });
     state.sessions = [fork, ...state.sessions.filter(task => task.id !== fork.id)];
+    if (draft) state.drafts.set(fork.id, draft);
     if (generation === state.generation) {
       await selectSession(fork.id, true);
-      notify('Conversation forked. Both tasks use the same checkout.');
+      if (draft !== undefined) document.querySelector<HTMLTextAreaElement>('#prompt')?.focus();
+      notify(draft !== undefined ? 'Rewound to before your message. Edit it and send.' : 'Conversation forked. Both tasks use the same checkout.');
     } else {
       scheduleNavigation();
       notify('Conversation forked. Your new task is in the task list.');
     }
   } finally { pendingMessageForks.delete(key); }
+}
+async function editAtMessage(sessionId: string, messageId: number): Promise<void> {
+  if (isRunning(sessionId)) throw new Error('Stop the agent before editing a message.');
+  const content = await call<string>('get_message_content', { sessionId, messageId });
+  // Attached context (files, images) is not re-attached; only what you typed returns.
+  await forkAtMessage(sessionId, messageId, contextBlocks(content).typed);
 }
 
 /* Each thread's last page. Switching back draws it in the same frame as the click; the
@@ -2253,7 +2307,7 @@ function scheduleLimitResumes(): void {
   }, Math.min(Math.max(0, next - Date.now()), 2147483647));
 }
 /** Recovery runs before queued follow-ups: continue the task, then the queue delivers when that run ends. */
-async function continueAfterLimit(task: Session): Promise<void> {
+async function continueAfterLimit(task: Session, text = 'Continue where you left off.'): Promise<void> {
   if (task.archived || isRunning(task.id) || state.queueBusy.has(task.id) || finishingStreams.has(task.id)) return;
   const hold = state.queueHolds.get(task.id);
   if (hold === 'limited' || hold === 'restart') state.queueHolds.delete(task.id);
@@ -2261,14 +2315,31 @@ async function continueAfterLimit(task: Session): Promise<void> {
   state.queueBusy.add(task.id);
   try {
     const at = Date.now();
-    await deliverQueued(task, { id: '', sessionId: task.id, position: 0, text: 'Continue where you left off.', attachments: [], createdAt: at, updatedAt: at });
+    await deliverQueued(task, { id: '', sessionId: task.id, position: 0, text, attachments: [], createdAt: at, updatedAt: at });
     task.limitedAt = null; task.limitedUntil = null;
   } catch (error) { notify(error instanceof Error ? error.message : String(error)); }
   finally { state.queueBusy.delete(task.id); if (task.id === state.sessionId) renderComposer(); renderNavigation(); }
 }
+/** The harness's other named connections a limited task can continue on (issue #137). */
+function limitAlternatives(s: Session): { id: string; name: string }[] {
+  if (s.remoteDevice) return [];
+  const current = namedConnections.tasks[s.id];
+  return namedConnections.connections.filter(c => c.provider === s.provider && c.id !== current);
+}
+/** Moves the task to another connection and resends with its context: a harness session can't resume
+ *  across config folders, so connection_assign starts a fresh one that context recovery fills in. */
+async function continueOnConnection(task: Session, id: string): Promise<void> {
+  const target = limitAlternatives(task).find(c => c.id === id);
+  if (!target || isRunning(task.id) || state.queueBusy.has(task.id)) return;
+  const from = taskConnection(task)?.name ?? `the default ${provider(task.provider)?.name ?? task.provider} setup`;
+  onNamedConnections(await call('connection_assign', { sessionId: task.id, connectionId: id }));
+  task.resumeId = null;
+  await continueAfterLimit(task, `Continue where you left off. (Moved to the connection “${target.name}” because ${from} reached its usage limit.)`);
+}
 async function limitAction(action: string, element: HTMLElement): Promise<void> {
   const s = session(); if (!s) return;
   if (action === 'limit-continue') return continueAfterLimit(s);
+  if (action === 'limit-switch') return continueOnConnection(s, element.dataset.connection ?? '');
   if (action === 'limit-dismiss') { await call('clear_usage_limit', { sessionId: s.id }); s.limitedAt = null; s.limitedUntil = null; s.resumeAtReset = false; scheduleLimitResumes(); renderComposer(); renderNavigation(); return; }
   if (action === 'limit-resume-at-reset') {
     const enabled = (element as HTMLInputElement).checked;
@@ -2330,7 +2401,7 @@ async function send(): Promise<void> {
   try {
     const contexts = await Promise.all(filePaths.map(path => fileContext(s, path)));
     // Mentioned issues and pull requests travel with the message, so every harness can read them.
-    const content = text + contexts.join('') + browserContextText(browserItems) + attachments.contextFor(promptItems) + await github.contextFor(s.projectId, s.id, text) + tokenSaver.contextFor(s.id);
+    const content = text + contexts.join('') + browserContextText(browserItems) + attachments.contextFor(promptItems) + await github.contextFor(s.projectId, s.id, text) + await botTaskBrief(s) + tokenSaver.contextFor(s.id);
     const sentIds = new Set(browserItems.map(item => item.id));
     const remaining = (state.browserAttachments.get(s.id) ?? []).filter(item => !sentIds.has(item.id));
     if (remaining.length) state.browserAttachments.set(s.id, remaining); else state.browserAttachments.delete(s.id);
@@ -2712,7 +2783,7 @@ const INSPECTOR_TITLES: Record<typeof state.inspectorTab, string> = { files: 'Fi
 function fileTree(files: FileEntry[], depth: number): string {
   return files.map(file => {
     const open = file.isDir && state.openFolders.has(file.path), path = escape(file.path);
-    const row = `<div class="file-row" style="--depth:${depth}"><button data-action="${file.isDir ? 'toggle-file-folder' : isPreviewableFile(file.path) && !OPENS_IN_TAB.test(file.path) ? 'preview-file' : 'open-file'}" data-path="${path}"${file.isDir ? ` aria-expanded="${open}"` : ''}>${file.isDir ? icon('chevron', 'file-twisty') : '<span class="file-twisty"></span>'}${fileIcon(file.name, file.isDir)}<span>${escape(file.name)}</span></button>${!file.isDir && /\.(html?|svg)$/i.test(file.path) ? button('open-file', 'View source of ' + file.name, 'file', 'file-attach', `data-path="${path}"`) : ''}${!file.isDir ? button('attach-file', 'Attach ' + file.name, 'plus', 'file-attach', `data-path="${path}"`) : ''}</div>`;
+    const row = `<div class="file-row" style="--depth:${depth}"><button data-action="${file.isDir ? 'toggle-file-folder' : isPreviewableFile(file.path) && !OPENS_IN_TAB.test(file.path) ? 'preview-file' : 'open-file'}" data-path="${path}"${file.isDir ? ` aria-expanded="${open}"` : ''}>${file.isDir ? icon('chevron', 'file-twisty') : '<span class="file-twisty"></span>'}${fileIcon(file.name, file.isDir)}<span>${escape(file.name)}</span></button>${!file.isDir && /\.(html?|svg)$/i.test(file.path) ? button('view-source', 'View source of ' + file.name, 'file', 'file-attach', `data-path="${path}"`) : ''}${!file.isDir ? button('attach-file', 'Attach ' + file.name, 'plus', 'file-attach', `data-path="${path}"`) : ''}</div>`;
     return row + (open ? fileTree(state.folderFiles.get(file.path) ?? [], depth + 1) : '');
   }).join('');
 }
@@ -2829,14 +2900,14 @@ async function previewFile(path: string, context = workspaceContext(), active?: 
   if (!browserPanel) throw new Error('Browser could not be opened.');
   await browserPanel.navigate(file.url);
 }
-async function openFile(path: string, kind: 'file' | 'diff', staged = false, context = workspaceContext()): Promise<void> {
+async function openFile(path: string, kind: 'file' | 'diff', staged = false, context = workspaceContext(), source = false): Promise<void> {
   const p = project(); if (!p) return;
   // Files open as tabs in their task's conversation; from the board that is the task panel beside it.
   if (kind === 'file') {
     if (context.sessionId && context.sessionId !== state.sessionId) await selectSession(context.sessionId);
     if (context.sessionId && context.sessionId !== state.sessionId) return;
     if (state.view !== 'conversation' && !state.boardPanel) setWorkspaceView('conversation');
-    fileTabs.open(path, context); return;
+    fileTabs.open(path, context, source); return;
   }
   const request = ++fileRequest, generation = state.generation; const content = await call<string>('git_diff', { ...context, path, staged }); if (request !== fileRequest || p.id !== state.projectId || generation !== state.generation) return;
   selectedFileContext = { ...context };
@@ -3143,7 +3214,7 @@ async function showChoices(anchor: HTMLElement, options: ChoiceOptions): Promise
 async function showMode(anchor: HTMLElement): Promise<void> {
   const s = session(); if (!s || isRunning() || configuringSessions.has(s.id)) return;
   const generation = state.generation;
-  const modes = approvalModes(s.provider);
+  const modes = approvalModes(s.provider, s.mode);
   await showChoices(anchor, { title: 'Permissions', width: 320, items: modes.map(mode => ({ ...mode, selected: s.mode === mode.id })), onSelect: async id => {
     if (s.id !== state.sessionId || generation !== state.generation || isRunning() || configuringSessions.has(s.id)) throw new Error('Select the task again to change its permissions.');
     const chosen = modes.find(mode => mode.id === id); if (!chosen) throw new Error('Choose an available approval behavior.');
@@ -3579,11 +3650,46 @@ function ensureBotProjects(): Promise<void> { return botProjectsLoad ??= reloadB
 async function reloadBotProjects(withProjects = true): Promise<void> {
   sidebarBots = await call<import('./bots').Bot[]>('bots_list').catch(() => sidebarBots);
   botProjects = new Set(sidebarBots.map(bot => bot.projectId));
+  taskBots = new Map(Object.entries(await call<Record<string, string>>('bot_task_links').catch(() => Object.fromEntries(taskBots))));
   // An earlier build could leave the filter on a bot's workspace; send it back to All projects.
   if (botProjects.has(state.projectFilter)) setProjectFilter('');
   // A new bot brings a workspace project; a renamed bot renames it.
   if (withProjects) state.projects = await call<Project[]>('list_projects');
   renderNavigation(); renderHeader();
+}
+/* A project task can start with a bot (#114): its first message carries the bot's brief and
+ * skills, and it uses the bot's harness and model. The task keeps its own project and checkout. */
+let taskBots = new Map<string, string>();
+const NO_BOT = 'none';
+function botTaskControl(task: Session, fresh: boolean): string {
+  const bot = sidebarBots.find(item => item.id === taskBots.get(task.id));
+  if (!fresh) return bot ? `<span class="composer-computer composer-computer-fixed" aria-label="Bot: ${escape(bot.name)} (fixed for this task)">${icon('bot')}<span>with ${escape(bot.name)}</span></span>` : '';
+  if (!sidebarBots.length || botProjects.has(task.projectId) || chatTask(task) || task.remoteDevice || task.cloud || remoteChoice !== LOCAL) return '';
+  const name = bot?.name ?? 'No bot';
+  return `<button type="button" id="composer-bot" class="composer-computer" data-action="bot-task-menu" aria-label="Bot: ${escape(name)}" aria-haspopup="dialog" aria-expanded="false" title="Start this task with a bot">${icon('bot')}<span>${escape(name)}</span>${icon('down')}</button>`;
+}
+async function showBotTaskMenu(anchor: HTMLElement): Promise<void> {
+  const task = session(); if (!task) return;
+  const chosen = taskBots.get(task.id) ?? NO_BOT;
+  const items = [{ id: NO_BOT, label: 'No bot', icon: 'close', selected: chosen === NO_BOT }, ...sidebarBots.map(bot => ({ id: bot.id, label: bot.name, description: bot.role, icon: 'bot', selected: bot.id === chosen }))];
+  await showChoices(anchor, { title: 'Bot', width: 280, items, onSelect: id => { closeChoiceMenu(); run(assignTaskBot(task, id === NO_BOT ? null : id)); } });
+}
+async function assignTaskBot(task: Session, botId: string | null): Promise<void> {
+  if (!newTaskView() || state.sessionId !== task.id) throw new Error('Choose a bot before the task\'s first message.');
+  configuringSessions.add(task.id);
+  try {
+    const bot = await call<import('./bots').Bot | null>('bot_assign_task', { sessionId: task.id, botId });
+    if (bot) {
+      taskBots.set(task.id, bot.id);
+      // The bot's harness and model become the task's defaults; the picker can still change them.
+      if (bot.provider !== task.provider || bot.model !== task.model) upsertSession(await call<Session>('configure_session', { sessionId: task.id, provider: bot.provider, model: bot.model }));
+    } else taskBots.delete(task.id);
+  } finally { configuringSessions.delete(task.id); }
+  if (state.sessionId === task.id) render();
+}
+/** The bot's brief for a task's next message, once per brief version; empty without a bot. */
+async function botTaskBrief(task: Session): Promise<string> {
+  return taskBots.has(task.id) ? await call<string | null>('bot_task_brief', { sessionId: task.id }) ?? '' : '';
 }
 const userProjects = (): Project[] => state.projects.filter(project => !botProjects.has(project.id) && !isChatProject(project));
 /** Whether a task runs as a projectless chat. */
@@ -3855,6 +3961,7 @@ async function action(name: string, element: HTMLElement): Promise<void> {
     case 'bot-pause': if (element.dataset.bot) { const bot = sidebarBots.find(item => item.id === element.dataset.bot); if (bot) { await call('bot_set_paused', { botId: bot.id, paused: !bot.paused }); notify(bot.paused ? `${bot.name} resumed` : `${bot.name} paused`); await reloadBotProjects(false); } } break;
     case 'open-bot': if (element.dataset.bot) await openBot(element.dataset.bot); break;
     case 'computer-menu': await showComputerMenu(element); break;
+    case 'bot-task-menu': await showBotTaskMenu(element); break;
     case 'cloud-menu': await showCloudMenu(element); break;
     case 'toggle-bots-view': setSidebarView(sidebarView === 'bots' ? 'tasks' : 'bots'); break;
     case 'import-conversations': await showConversationImport(); break;
@@ -3896,6 +4003,8 @@ async function action(name: string, element: HTMLElement): Promise<void> {
     case 'preview-file': await previewFile(element.dataset.path!); break;
     case 'preview-selected-file': await previewFile(state.selectedFile, selectedFileContext); break;
     case 'open-file': await openFile(element.dataset.path!, 'file'); break;
+    case 'open-message-attachment': await openMessageAttachment(element); break;
+    case 'view-source': await openFile(element.dataset.path!, 'file', false, workspaceContext(), true); break;
     case 'open-diff': await openFile(element.dataset.path!, 'diff', element.dataset.staged === 'true'); break;
     case 'back-inspector': state.selectedKind = ''; renderInspector(); break;
     case 'attach': await attachments.openMenu(element); break;
@@ -3928,7 +4037,7 @@ async function action(name: string, element: HTMLElement): Promise<void> {
   }
 }
 mountExternalLinks(document, url => call('open_external_url', { url }), report);
-document.addEventListener('click', event => { if ((event.target as Element).closest('.markdown,.streaming-content,.message-content')) return; const element = (event.target as Element).closest<HTMLElement>('[data-action]'); if (!element || element instanceof HTMLButtonElement && element.disabled) return; event.preventDefault(); run(action(element.dataset.action!, element)); });
+document.addEventListener('click', event => { const target = event.target as Element; if (target.closest('.markdown,.streaming-content,.message-content') && !target.closest('.message-attachments')) return; const element = target.closest<HTMLElement>('[data-action]'); if (!element || element instanceof HTMLButtonElement && element.disabled) return; event.preventDefault(); run(action(element.dataset.action!, element)); });
 document.addEventListener('submit', event => {
   const form = event.target as HTMLFormElement; event.preventDefault();
   if (form.id === 'composer') { run(send()); return; }
@@ -4104,20 +4213,7 @@ async function boot(): Promise<void> {
   if (!preview && !state.providers.some(p => p.installed)) notify('Open Settings to check your installed agent CLIs.');
 }
 // PandaCode's own updates: checked on GitHub Releases, installed when no agent is working.
-const updates = startAppUpdates({ busy: () => state.sessions.some(task => isRunning(task.id)), notify });
-{
-  const pill = $('#update-status');
-  const paint = () => {
-    const current = updates.state;
-    pill.hidden = current.kind !== 'ready' && current.kind !== 'installing';
-    if (current.kind !== 'ready' && current.kind !== 'installing') return;
-    pill.title = current.kind === 'ready' ? `PandaCode ${current.version} is ready. Restart now, or it restarts on its own when your agents are done.` : `Installing ${current.version}…`;
-    (pill as HTMLButtonElement).disabled = current.kind === 'installing';
-  };
-  updates.subscribe(paint);
-  pill.addEventListener('click', () => { void updates.restart(); });
-  paint();
-}
+mountUpdatePill($('#update-status') as HTMLButtonElement, startAppUpdates({ busy: () => state.sessions.some(task => isRunning(task.id)), notify }));
 const agentUpdates = initializeAgentUpdates({
   modal, closeModal, report, providers: () => state.providers,
   providersChanged: async () => { await discoverSettingsProviders(); refreshModelLabels(); slashPicker?.refresh(true); },

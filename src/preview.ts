@@ -119,6 +119,7 @@ const providers: Provider[] = [
   { id: 'deepseek', name: 'DeepSeek', installed: true, path: '/sample/bin/dsh', version: 'Sample provider', models: [] },
   { id: 'commandcode', name: 'Command Code', installed: true, path: '/sample/bin/command-code', version: '1.87.1 (sample)', models: [] },
   { id: 'cline', name: 'Cline', installed: true, path: '/sample/bin/cline', version: '3.0.73 (sample)', models: [] },
+  { id: 'kilo', name: 'Kilo Code', installed: true, path: '/sample/bin/kilo', version: '7.3.41 (sample)', models: [] },
   { id: 'omp', name: 'Oh My Pi', installed: false, path: null, version: '', models: [] },
   { id: 'github-copilot', name: 'GitHub Copilot CLI', installed: true, path: '/sample/bin/copilot', version: 'GitHub Copilot CLI 1.0.82 (sample)', models: [] },
   { id: 'muse', name: 'Muse Code', installed: true, path: '/sample/bin/muse', version: 'Muse Code 1.4.7 (sample)', models: [] },
@@ -153,6 +154,11 @@ function remoteCatalog(id: ProviderId): ProviderModel[] {
   return id === 'codex' ? ['gpt-5-codex', 'gpt-5'].map(model => fallbackModel('codex', model)) : [];
 }
 const catalogs: Record<ProviderId, ProviderModel[]> = {
+  // Recorded from `kilo acp` 7.3.41; efforts belong to its current model only.
+  kilo: [
+    { id: 'kilo/stealth/claude-sonnet-4.6', name: 'Kilo Gateway/Stealth: Claude Sonnet 4.6 (20% off)', description: '', reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].map(id => ({ id, name: id, description: '' })), defaultReasoningEffort: 'none' },
+    { id: 'kilo/anthropic/claude-sonnet-4.6', name: 'Kilo Gateway/Anthropic: Claude Sonnet 4.6', description: '' },
+  ],
   pi: [{ id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5', description: 'Sample Pi model.', reasoningEfforts: [{ id: 'low', name: 'Low', description: '' }, { id: 'high', name: 'High', description: '' }], contextWindow: 200000 }],
   omp: [{ id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5', description: 'Sample omp model.', reasoningEfforts: [{ id: 'low', name: 'Low', description: '' }, { id: 'high', name: 'High', description: '' }], contextWindow: 200000 }],
   deepseek: [
@@ -721,8 +727,9 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
       return { provider: provider.id, name: provider.name, providers: provider.id === 'claude' ? ['claude', 'glm', 'mimo'] : [provider.id], installedVersion: version, latestVersion: version, status: 'current', method: null, canUpdate: false, message: 'Browser preview · installed agents are checked in the desktop app.', checkedAt: Date.now(), docsUrl: null };
     }); break;
     case 'update_agent': throw new Error('Agent updates are available in the desktop app.');
-    case 'jev_configuration': result = { enabled: false, decisionsEnabled: false, pythonPath: '', chromePath: '', textModel: 'inception/mercury-2.5', textBaseUrl: 'https://openrouter.ai/api/v1', typesafeKeySaved: false, textKeySaved: false }; break;
+    case 'jev_configuration': result = { enabled: false, decisionsEnabled: false, decisionProvider: 'typesafe', decisionModel: '', openrouterKeySaved: false, pythonPath: '', chromePath: '', textModel: 'inception/mercury-2.5', textBaseUrl: 'https://openrouter.ai/api/v1', typesafeKeySaved: false, textKeySaved: false }; break;
     case 'jev_doctor': result = { ready: false, pythonVersion: '', jevVersion: '', chromePath: '', issues: ['Jev runs in the desktop app. This browser preview does not launch browsers or contact model APIs.'] }; break;
+    case 'jev_decision_models': result = args?.provider === 'openrouter' ? [{ id: 'openai/gpt-4o-mini', name: 'OpenAI: GPT-4o mini' }, { id: 'anthropic/claude-haiku-4.5', name: 'Anthropic: Claude Haiku 4.5' }] : [{ id: 'jev-1.13.0', name: 'jev-1.13.0' }]; break;
     case 'jev_list_runs': case 'jev_assist_list': result = []; break;
     case 'jev_watch_run': break; // Preview never starts Chrome or contacts model providers.
     case 'jev_assist_prepare': {
@@ -757,7 +764,7 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
       result = { provider, status: supported ? 'ready' : 'unsupported', checkedAt: Date.now(), stale: false,
         plan: provider === 'codex' ? 'Pro' : provider === 'opencode' ? 'Go' : null,
         windows: supported ? [
-          { label: provider === 'opencode' ? 'Go rolling window' : '5-hour window', usedPercent: provider === 'codex' ? 38 : 22, resetsAt: new Date(Date.now() + 7200000).toISOString() },
+          { label: provider === 'opencode' ? 'Go rolling window' : '5-hour window', usedPercent: args.connection ? 91 : provider === 'codex' ? 38 : 22, resetsAt: new Date(Date.now() + 7200000).toISOString() },
           { label: provider === 'opencode' ? 'Go weekly' : 'Weekly', usedPercent: 64, resetsAt: new Date(Date.now() + 3 * 86400000).toISOString() },
         ] : [], source: 'Sample limits for the browser preview. No provider request was made.',
         message: supported ? null : 'This harness does not expose account limits. Check its account dashboard.' };
@@ -834,7 +841,7 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
       if (!Number.isSafeInteger(args.messageId) || args.messageId <= 0 || boundary < 0 || !['user', 'assistant'].includes(history[boundary].role)) throw new Error('Choose a saved user message or assistant response to fork.');
       const boundaryProvider = historicalProvider(history[boundary], history, source.provider);
       const created: Session = { ...structuredClone(source), id: crypto.randomUUID(), pinned: false, sidebarOrder: null, title: [...source.title].slice(0, 193).join('') + ' (fork)', resumeId: null, status: 'idle', archived: false, goalState: null, contextUsage: null, taskStage: 'in_progress', completedAt: null, lastResponseAt: null, lastPromptAt: null, createdAt: Date.now(), updatedAt: Date.now() };
-      const copied: Message[] = history.slice(0, boundary + 1).filter(message => !['internal', 'changes'].includes(message.role)).map(message => {
+      const copied: Message[] = history.slice(0, boundary + (args.exclusive ? 0 : 1)).filter(message => !['internal', 'changes'].includes(message.role)).map(message => {
         let content = message.content;
         if (message.role === 'tool') {
           try {
@@ -1002,6 +1009,7 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
     case 'open_external_url': { const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Use an HTTP or HTTPS URL.'); window.open(url.href, '_blank', 'noopener,noreferrer'); break; }
     case 'open_support': window.open('https://github.com/aicodeking/pandacode/issues', '_blank', 'noopener,noreferrer'); break;
     case 'local_sign_app': break;
+    case 'app_update_install_supported': result = true; break;
     case 'support_details': result = { version: 'Preview', platform: 'Browser preview', architecture: 'Not reported' }; break;
     case 'browser_inspect': result = args.action === 'read' ? { url: browserState.url, title: browserState.title, text: 'Browser preview sample page', elements: [] } : { dispatched: true }; break;
     case 'list_provider_models': result = args.deviceId ? remoteCatalog(args.provider as ProviderId) : args.provider === 'opencode' ? previewOpenCodeChoices() : catalogs[args.provider as ProviderId] ?? []; break;
@@ -1308,6 +1316,8 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
     case 'cloud_connect': result = previewCloud.connect(args.provider, args.key, args.options ?? {}); emit('vm-changed', {}); break;
     case 'cloud_disconnect': result = previewCloud.disconnect(args.provider); emit('vm-changed', {}); break;
     case 'cloud_setup_sandboxes': result = previewCloud.setupSandboxes(); emit('vm-changed', {}); break;
+    case 'cloud_instabox_images': result = previewCloud.instaboxImages(); break;
+    case 'cloud_instabox_set_image': result = previewCloud.setInstaboxImage(args.image); break;
     case 'cloud_machines': result = previewCloud.list(); break;
     case 'cloud_create': result = previewCloud.create(args.provider, args.name); break;
     case 'cloud_power': result = previewCloud.power(args.id, args.action); break;
@@ -1327,6 +1337,7 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
     case 'design_save_comments': result = previewDesign.saveComments(args.comments); break;
     case 'skills_list': case 'skills_import_folder': case 'skills_import_github': case 'skills_activate':
     case 'skills_deactivate': case 'skills_matrix': case 'skills_scan': case 'skills_remove':
+    case 'skills_catalogs': case 'skills_catalog_add': case 'skills_catalog_refresh': case 'skills_catalog_state': case 'skills_catalog_import': case 'skills_discover':
       result = previewSkills.call(command, args); break;
     case 'simulator_status': result = previewSimulator.status(); break;
     case 'simulator_pose': result = await previewSimulator.pose(args.udid, args.pose); break;
@@ -1377,6 +1388,9 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
       result = { id: crypto.randomUUID(), name, width: 1280, height: 800, thumbnail: String(args.dataUrl ?? '').startsWith('data:image/png') ? args.dataUrl : 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==' };
       break;
     }
+    // Any registry ID shows the yellow swatch; native reads browser-captures/<id>.png.
+    case 'prompt_image': result = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(args.id)) ? 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==' : null; break;
+    case 'reveal_path': if (!String(args.path ?? '').startsWith('/')) throw new Error('This attachment is no longer on this computer.'); break;
     case 'read_document': {
       const path = String(args.path ?? ''), name = path.split('/').pop() || 'Document';
       if (!path.startsWith('/')) throw new Error('Choose the document with the picker or drop it onto the message.');
@@ -1421,7 +1435,7 @@ export async function invoke<T>(command: string, args: Record<string, any>): Pro
       result = await response.arrayBuffer();
       break;
     }
-    case 'read_file': result = /\.(md|markdown)$/i.test(args.path) ? sampleReadme : args.path.endsWith('.json') ? '{\n  "name": "orbit",\n  "private": true,\n  "type": "module"\n}' : args.path.endsWith('.html') ? '<!doctype html>\n<html><head><title>Orbit</title></head><body><h1>Orbit</h1></body></html>' : sampleSource; break;
+    case 'read_file': result = /\.(md|markdown)$/i.test(args.path) ? sampleReadme : args.path.endsWith('.json') ? '{\n  "name": "orbit",\n  "private": true,\n  "type": "module"\n}' : args.path.endsWith('.html') ? '<!doctype html>\n<html><head><title>Orbit</title></head><body><h1>Orbit</h1></body></html>' : args.path.endsWith('.svg') ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/></svg>' : sampleSource; break;
     case 'get_metrics': result = { coreRssBytes: 0, activeAgents: timers.size, activeTerminals: 0, databaseBytes: 0 }; break;
     case 'get_terminal_activity': result = { running: false, processNames: [], uncertain: false }; break;
     case 'get_run_script': result = null; break;
